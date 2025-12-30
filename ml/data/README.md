@@ -20,6 +20,14 @@ data/
 
 ## Data Collection Strategy
 
+### Quick Start
+Collect training data for a chord:
+```bash
+python ml/src/data_collection.py --chord C --samples 200
+```
+
+Press SPACE to start capturing once you've positioned your hands. Press Q to quit early.
+
 ### Capture Protocol
 - **Device**: Webcam (720p minimum)
 - **Lighting**: Well-lit, consistent conditions
