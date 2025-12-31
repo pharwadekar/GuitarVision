@@ -3,45 +3,45 @@ Feature extraction from hand landmarks.
 
 Extracts numerical features from MediaPipe hand landmarks for model training.
 """
+
+
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict
 
 
-def extract_hand_features(landmarks: List[Dict[str, float]]) -> np.ndarray:
+def _calculate_fingertip_distances(normalized_coords: np.ndarray) -> List[float]:
     """
-    Extract features from a single hand's landmarks.
+    Calculate distances from wrist to each fingertip.
     
     Args:
-        landmarks: List of 21 landmarks with x, y, z coordinates
+        normalized_coords: Hand landmarks normalized to wrist position
         
     Returns:
-        Feature vector as numpy array
+        List of 5 distances (thumb, index, middle, ring, pinky)
     """
-    if len(landmarks) != 21:
-        raise ValueError(f"Expected 21 landmarks, got {len(landmarks)}")
+    fingertip_indices = [4, 8, 12, 16, 20]
+    return [np.linalg.norm(normalized_coords[idx]) for idx in fingertip_indices]
+
+
+def _calculate_bend_ratios(normalized_coords: np.ndarray) -> List[float]:
+    """
+    Calculate finger bend ratios (straight line / actual path length).
     
-    coords = np.array([[lm['x'], lm['y'], lm['z']] for lm in landmarks])
-    features = []
-    
-    # Normalize to wrist position
-    wrist = coords[0]
-    normalized_coords = coords - wrist
-    
-    # Fingertip distances from wrist
-    fingertip_indices = [4, 8, 12, 16, 20]  # thumb, index, middle, ring, pinky
-    for idx in fingertip_indices:
-        dist = np.linalg.norm(normalized_coords[idx])
-        features.append(dist)
-    
-    # Finger bend ratios (tip to MCP distance / full finger length)
+    Args:
+        normalized_coords: Hand landmarks normalized to wrist position
+        
+    Returns:
+        List of 5 bend ratios (one per finger)
+    """
     finger_segments = [
-        [1, 2, 3, 4],    # thumb
-        [5, 6, 7, 8],    # index
-        [9, 10, 11, 12], # middle
-        [13, 14, 15, 16],# ring
-        [17, 18, 19, 20] # pinky
+        [1, 2, 3, 4],      # thumb
+        [5, 6, 7, 8],      # index
+        [9, 10, 11, 12],   # middle
+        [13, 14, 15, 16],  # ring
+        [17, 18, 19, 20]   # pinky
     ]
     
+    bend_ratios = []
     for segment in finger_segments:
         mcp = normalized_coords[segment[0]]
         tip = normalized_coords[segment[-1]]
@@ -53,20 +53,81 @@ def extract_hand_features(landmarks: List[Dict[str, float]]) -> np.ndarray:
         )
         
         bend_ratio = tip_to_mcp / full_length if full_length > 0 else 0
-        features.append(bend_ratio)
+        bend_ratios.append(bend_ratio)
     
-    # Inter-finger angles
+    return bend_ratios
+
+
+def _calculate_interfinger_angles(normalized_coords: np.ndarray) -> List[float]:
+    """
+    Calculate cosine of angles between adjacent fingertips.
+    
+    Args:
+        normalized_coords: Hand landmarks normalized to wrist position
+        
+    Returns:
+        List of 4 angle cosines (thumb-index, index-middle, middle-ring, ring-pinky)
+    """
+    fingertip_indices = [4, 8, 12, 16, 20]
+    angles = []
+    
     for i in range(len(fingertip_indices) - 1):
         v1 = normalized_coords[fingertip_indices[i]]
         v2 = normalized_coords[fingertip_indices[i+1]]
         
         cos_angle = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-8)
-        features.append(cos_angle)
+        angles.append(cos_angle)
     
-    # Palm width and height
-    palm_width = np.linalg.norm(normalized_coords[5] - normalized_coords[17])
-    palm_height = np.linalg.norm(normalized_coords[9] - wrist)
-    features.extend([palm_width, palm_height])
+    return angles
+
+
+def _calculate_palm_dimensions(coords: np.ndarray) -> List[float]:
+    """
+    Calculate palm width and height.
+    
+    Args:
+        coords: Hand landmarks with wrist normalization applied
+        
+    Returns:
+        List of 2 values: [palm_width, palm_height]
+    """
+    wrist = coords[0]
+    palm_width = np.linalg.norm(coords[5] - coords[17])  # Index MCP to pinky MCP
+    palm_height = np.linalg.norm(coords[9] - wrist)      # Middle MCP to wrist
+    return [palm_width, palm_height]
+
+
+def extract_hand_features(landmarks: List[Dict[str, float]]) -> np.ndarray:
+    """
+    Extract features from a single hand's landmarks.
+    
+    Extracts 16 features:
+    - 5 fingertip distances from wrist
+    - 5 finger bend ratios
+    - 4 inter-finger angle cosines
+    - 2 palm dimensions (width, height)
+    
+    Args:
+        landmarks: List of 21 landmarks with x, y, z coordinates
+        
+    Returns:
+        Feature vector of shape (16,)
+    """
+    if len(landmarks) != 21:
+        raise ValueError(f"Expected 21 landmarks, got {len(landmarks)}")
+    
+    coords = np.array([[lm['x'], lm['y'], lm['z']] for lm in landmarks])
+    
+    # Normalize to wrist position
+    wrist = coords[0]
+    normalized_coords = coords - wrist
+    
+    # Compute all feature groups
+    features = []
+    features.extend(_calculate_fingertip_distances(normalized_coords))
+    features.extend(_calculate_bend_ratios(normalized_coords))
+    features.extend(_calculate_interfinger_angles(normalized_coords))
+    features.extend(_calculate_palm_dimensions(coords))
     
     return np.array(features, dtype=np.float32)
 
@@ -117,7 +178,6 @@ def normalize_features(features: np.ndarray) -> np.ndarray:
 
 
 if __name__ == "__main__":
-    # Example usage
     print("Feature extraction module ready")
-    print("Single hand features: ~21 dimensions")
-    print("Two hands features: ~42 dimensions")
+    print("Single hand features: 16 dimensions")
+    print("Two hands features: 32 dimensions")
